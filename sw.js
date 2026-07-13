@@ -1,10 +1,10 @@
 /* todo.sh — service worker: offline app shell */
-const CACHE = 'todo-sh-v1';
+const CACHE = 'todo-sh-v2';
 const SHELL = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
+  './styles.css?v=2',
+  './app.js?v=2',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
@@ -29,9 +29,9 @@ self.addEventListener('fetch', (e) => {
   // Never intercept the Anthropic API (or any cross-origin request)
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
 
-  // Network-first for the app shell: fresh when online, cached when offline
+  // Network-first, revalidating the HTTP cache: fresh when online, cached when offline
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((resp) => {
         const copy = resp.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));

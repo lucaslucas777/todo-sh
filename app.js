@@ -5,6 +5,7 @@ const LS_TASKS = 'todos.v1';
 const LS_KEY = 'anthropic_key';
 const LS_MODEL = 'anthropic_model';
 const DEFAULT_MODEL = 'claude-opus-4-8';
+const DAY = 24 * 60 * 60 * 1000;
 
 let tasks = load();
 let filter = 'all';
@@ -21,6 +22,9 @@ function uid() {
   return (crypto.randomUUID) ? crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+function startOfDay(ts) {
+  const d = new Date(ts); d.setHours(0, 0, 0, 0); return +d;
+}
 
 /* ── natural-language parsing (es + en, offline) ─────────────── */
 const WEEKDAYS = {
@@ -32,12 +36,14 @@ const WEEKDAYS = {
   viernes: 5, friday: 5,
   sabado: 6, 'sábado': 6, saturday: 6,
 };
+const WEEKDAY_RE = Object.keys(WEEKDAYS).join('|');
 
 function parseInput(raw) {
   let text = ' ' + raw.trim() + ' ';
   let priority = 0;
   let date = null;        // Date at local midnight
   let hour = null, minute = 0;
+  let repeat = null;      // 'daily' | 'weekly'
 
   // priority: trailing bangs
   const bang = text.match(/(!{1,3})\s*$/);
@@ -53,7 +59,24 @@ function parseInput(raw) {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const day = 24 * 60 * 60 * 1000;
+
+  // recurrence: daily
+  const dailyRe = /(^|\s)(todos\s+los\s+d[ií]as|cada\s+d[ií]a|diario|diaria|every\s+day|daily)(?=\s|$)/i;
+  if (dailyRe.test(text)) {
+    repeat = 'daily';
+    date = new Date(+today);
+    text = text.replace(dailyRe, ' ');
+  }
+  // recurrence: weekly ("cada martes", "todos los lunes", "every monday")
+  const weeklyRe = new RegExp('(^|\\s)(?:cada|todos\\s+los|every)\\s+(' + WEEKDAY_RE + ')s?(?=\\s|$)', 'i');
+  const wk = text.match(weeklyRe);
+  if (!repeat && wk) {
+    repeat = 'weekly';
+    const target = WEEKDAYS[wk[2].toLowerCase().replace(/s$/, '')] ?? WEEKDAYS[wk[2].toLowerCase()];
+    const diff = (target - today.getDay() + 7) % 7;
+    date = new Date(+today + diff * DAY);
+    text = text.replace(weeklyRe, ' ');
+  }
 
   function take(re, fn) {
     if (date) return;
@@ -76,20 +99,20 @@ function parseInput(raw) {
     return dt;
   });
   // relative phrases (longest first)
-  take(/(^|\s)pasado\s+ma[ñn]ana(?=\s|$)/i, () => new Date(+today + 2 * day));
-  take(/(^|\s)day\s+after\s+tomorrow(?=\s|$)/i, () => new Date(+today + 2 * day));
-  take(/(^|\s)(la\s+)?pr[óo]xima\s+semana(?=\s|$)/i, () => new Date(+today + 7 * day));
-  take(/(^|\s)next\s+week(?=\s|$)/i, () => new Date(+today + 7 * day));
-  take(/(^|\s)en\s+(\d+)\s+d[ií]as?(?=\s|$)/i, (m) => new Date(+today + (+m[2]) * day));
-  take(/(^|\s)in\s+(\d+)\s+days?(?=\s|$)/i, (m) => new Date(+today + (+m[2]) * day));
+  take(/(^|\s)pasado\s+ma[ñn]ana(?=\s|$)/i, () => new Date(+today + 2 * DAY));
+  take(/(^|\s)day\s+after\s+tomorrow(?=\s|$)/i, () => new Date(+today + 2 * DAY));
+  take(/(^|\s)(la\s+)?pr[óo]xima\s+semana(?=\s|$)/i, () => new Date(+today + 7 * DAY));
+  take(/(^|\s)next\s+week(?=\s|$)/i, () => new Date(+today + 7 * DAY));
+  take(/(^|\s)en\s+(\d+)\s+d[ií]as?(?=\s|$)/i, (m) => new Date(+today + (+m[2]) * DAY));
+  take(/(^|\s)in\s+(\d+)\s+days?(?=\s|$)/i, (m) => new Date(+today + (+m[2]) * DAY));
   take(/(^|\s)(hoy|today)(?=\s|$)/i, () => new Date(+today));
-  take(/(^|\s)(ma[ñn]ana|tomorrow)(?=\s|$)/i, () => new Date(+today + day));
+  take(/(^|\s)(ma[ñn]ana|tomorrow)(?=\s|$)/i, () => new Date(+today + DAY));
   // weekday name (next occurrence)
-  take(new RegExp('(^|\\s)(?:el\\s+|on\\s+)?(' + Object.keys(WEEKDAYS).join('|') + ')(?=\\s|$)', 'i'), (m) => {
+  take(new RegExp('(^|\\s)(?:el\\s+|on\\s+)?(' + WEEKDAY_RE + ')(?=\\s|$)', 'i'), (m) => {
     const target = WEEKDAYS[m[2].toLowerCase()];
     let diff = (target - today.getDay() + 7) % 7;
     if (diff === 0) diff = 7;
-    return new Date(+today + diff * day);
+    return new Date(+today + diff * DAY);
   });
 
   // time: "5:30pm" / "17:00" / "5pm" / "a las 5pm"
@@ -106,11 +129,11 @@ function parseInput(raw) {
     }
   }
 
-  // time without a date → today (or tomorrow if already past)
+  // time without a date → today (or tomorrow if already past, unless recurring)
   if (hour !== null && !date) {
     date = new Date(+today);
     const candidate = new Date(+date); candidate.setHours(hour, minute);
-    if (candidate < new Date()) date = new Date(+today + day);
+    if (candidate < new Date() && !repeat) date = new Date(+today + DAY);
   }
 
   let due = null, dueHasTime = false;
@@ -120,7 +143,7 @@ function parseInput(raw) {
     due = +date;
   }
 
-  return { text: text.replace(/\s+/g, ' ').trim(), priority, due, dueHasTime };
+  return { text: text.replace(/\s+/g, ' ').trim(), priority, due, dueHasTime, repeat };
 }
 
 function to24(h, ampm) {
@@ -132,8 +155,7 @@ function to24(h, ampm) {
 
 function formatDue(due, hasTime) {
   const d = new Date(due);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.round((new Date(d).setHours(0, 0, 0, 0) - +today) / 86400000);
+  const diff = Math.round((startOfDay(due) - startOfDay(Date.now())) / DAY);
   let label;
   if (diff === 0) label = 'hoy';
   else if (diff === 1) label = 'mañana';
@@ -141,6 +163,87 @@ function formatDue(due, hasTime) {
   else label = d.toLocaleDateString('es', { day: 'numeric', month: 'short' });
   if (hasTime) label += ' ' + d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
   return label;
+}
+
+/* recurring: next occurrence after completing */
+function advanceRepeat(t) {
+  const step = t.repeat === 'daily' ? 1 : 7;
+  const d = new Date(t.due);
+  const now = new Date();
+  do { d.setDate(d.getDate() + step); } while (d <= now);
+  t.due = +d;
+}
+
+/* ── bulk import (from Claude or any pasted list) ────────────── */
+function cleanLine(s) {
+  return s.replace(/^\s*(?:[-*•·#>]+|\d+[.)])\s*/, '').trim();
+}
+function importTasks(items) {
+  let added = 0;
+  for (const item of items) {
+    const line = cleanLine(String(item));
+    if (!line) continue;
+    const parsed = parseInput(line);
+    if (!parsed.text) continue;
+    const dup = tasks.some(t => !t.done && t.text.toLowerCase() === parsed.text.toLowerCase());
+    if (dup) continue;
+    tasks.push({
+      id: uid(), text: parsed.text, done: false,
+      priority: parsed.priority, due: parsed.due,
+      dueHasTime: parsed.dueHasTime, repeat: parsed.repeat,
+      subtasks: [], createdAt: Date.now(),
+    });
+    added++;
+  }
+  if (added) { save(); render(); }
+  return added;
+}
+function importFromHash() {
+  const m = location.hash.match(/^#add=(.+)/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  let items = null;
+  try { items = JSON.parse(decodeURIComponent(m[1])); } catch { }
+  if (Array.isArray(items)) {
+    const n = importTasks(items);
+    toast(n ? `✦ ${n} tarea${n === 1 ? '' : 's'} agregada${n === 1 ? '' : 's'} desde Claude` : 'Nada nuevo que importar', n > 0);
+  }
+}
+
+/* ── calendar export (.ics → native iPhone alerts) ───────────── */
+function downloadIcs(t) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date(t.due);
+  const stamp = new Date();
+  const fmtLocal = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
+  const fmtDate = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}`;
+  const esc = (s) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,');
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//todo.sh//ES', 'BEGIN:VEVENT',
+    `UID:${t.id}@todo.sh`,
+    `DTSTAMP:${fmtLocal(stamp)}`,
+  ];
+  if (t.dueHasTime) {
+    lines.push(`DTSTART:${fmtLocal(d)}`);
+  } else {
+    lines.push(`DTSTART;VALUE=DATE:${fmtDate(d)}`);
+  }
+  if (t.repeat === 'daily') lines.push('RRULE:FREQ=DAILY');
+  if (t.repeat === 'weekly') lines.push('RRULE:FREQ=WEEKLY');
+  lines.push(
+    `SUMMARY:${esc(t.text)}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY',
+    `DESCRIPTION:${esc(t.text)}`,
+    t.dueHasTime ? 'TRIGGER:-PT0M' : 'TRIGGER:PT9H',  // all-day → aviso 9:00
+    'END:VALARM', 'END:VEVENT', 'END:VCALENDAR');
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tarea.ics';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  toast('🗓 Abre el archivo y toca "Añadir al Calendario"', true);
 }
 
 /* ── rendering ── */
@@ -154,83 +257,139 @@ function el(tag, cls, text) {
   return n;
 }
 
-function sorted() {
-  return tasks.slice().sort((a, b) =>
-    (a.done - b.done) ||
-    (b.priority - a.priority) ||
+function cmp(a, b) {
+  return (b.priority - a.priority) ||
     ((a.due ?? Infinity) - (b.due ?? Infinity)) ||
-    (a.createdAt - b.createdAt));
+    (a.createdAt - b.createdAt);
 }
+
+function sectionOf(t, now) {
+  if (t.done) return 'hechas';
+  if (!t.due) return 'sin fecha';
+  if (t.due < now) return 'vencidas';
+  const diff = Math.round((startOfDay(t.due) - startOfDay(now)) / DAY);
+  if (diff <= 0) return 'hoy';
+  if (diff === 1) return 'mañana';
+  if (diff <= 7) return 'esta semana';
+  return 'después';
+}
+
+const SECTION_ORDER = ['vencidas', 'hoy', 'mañana', 'esta semana', 'después', 'sin fecha', 'hechas'];
 
 function render() {
   listEl.textContent = '';
   const now = Date.now();
-  const visible = sorted().filter(t =>
-    filter === 'all' ? true : filter === 'active' ? !t.done : t.done);
 
-  if (!visible.length) {
+  const groups = {};
+  for (const t of tasks) {
+    const sec = sectionOf(t, now);
+    (groups[sec] = groups[sec] || []).push(t);
+  }
+  for (const sec of Object.keys(groups)) groups[sec].sort(cmp);
+
+  // day header: // lun 13 jul · 2 para hoy · 1 vencida
+  const nHoy = (groups['hoy'] || []).length;
+  const nVenc = (groups['vencidas'] || []).length;
+  const dayStr = new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  let head = `// ${dayStr}`;
+  if (nVenc) head += ` · ${nVenc} vencida${nVenc === 1 ? '' : 's'}`;
+  head += ` · ${nHoy} para hoy`;
+  listEl.append(el('div', 'day-head', head));
+
+  const sections = SECTION_ORDER.filter(sec => {
+    if (!groups[sec] || !groups[sec].length) return false;
+    if (filter === 'active') return sec !== 'hechas';
+    if (filter === 'done') return sec === 'hechas';
+    return true;
+  });
+
+  if (!sections.length) {
     listEl.append(el('div', 'empty',
       tasks.length ? '// nada que mostrar con este filtro'
                    : '// no hay tareas — agrega una arriba'));
   }
 
-  visible.forEach((t, i) => {
-    const row = el('div', 'task' + (t.done ? ' done' : ''));
-    row.append(el('span', 'gutter', String(i + 1)));
-
-    const check = el('button', 'check', t.done ? '[x]' : '[ ]');
-    check.setAttribute('aria-label', t.done ? 'marcar pendiente' : 'marcar hecha');
-    check.onclick = () => { t.done = !t.done; save(); render(); };
-    row.append(check);
-
-    const body = el('div', 'task-body');
-    body.append(el('div', 'task-text', t.text));
-
-    const tags = el('div', 'tags');
-    if (t.due) {
-      const overdue = !t.done && t.due < now;
-      tags.append(el('span', 'tag due' + (overdue ? ' overdue' : ''),
-        '⏱ ' + formatDue(t.due, t.dueHasTime)));
+  let lineNo = 0;
+  for (const sec of sections) {
+    listEl.append(el('div', 'section-head', `// ${sec}`));
+    for (const t of groups[sec]) {
+      lineNo++;
+      listEl.append(taskRow(t, lineNo, now));
     }
-    if (t.priority > 0) tags.append(el('span', 'tag p' + t.priority, '!p' + t.priority));
-    if (tags.children.length) body.append(tags);
-
-    if (t.reason) body.append(el('span', 'reason', '// ' + t.reason));
-
-    if (t.subtasks && t.subtasks.length) {
-      const subs = el('div', 'subtasks');
-      t.subtasks.forEach((s) => {
-        const srow = el('div', 'subtask' + (s.done ? ' done' : ''));
-        srow.append(el('span', 'branch', '└'));
-        const sc = el('button', 'check', s.done ? '[x]' : '[ ]');
-        sc.onclick = () => { s.done = !s.done; save(); render(); };
-        srow.append(sc);
-        srow.append(el('span', 'sub-text', s.text));
-        subs.append(srow);
-      });
-      body.append(subs);
-    }
-    row.append(body);
-
-    const actions = el('div', 'task-actions');
-    const split = el('button', 'split-btn', '✦');
-    split.title = 'dividir en subtareas (Claude)';
-    split.onclick = () => breakdown(t, split);
-    actions.append(split);
-    const del = el('button', 'del-btn', '×');
-    del.title = 'eliminar';
-    del.onclick = () => { tasks = tasks.filter(x => x.id !== t.id); save(); render(); };
-    actions.append(del);
-    row.append(actions);
-
-    listEl.append(row);
-  });
+  }
 
   const open = tasks.filter(t => !t.done).length;
   $('#counts').textContent = `${open} pendiente${open === 1 ? '' : 's'} · ${tasks.length - open} hecha${tasks.length - open === 1 ? '' : 's'}`;
   $('#modelChip').textContent = localStorage.getItem(LS_KEY)
     ? '✦ ' + (localStorage.getItem(LS_MODEL) || DEFAULT_MODEL).replace('claude-', '')
     : '';
+}
+
+function taskRow(t, lineNo, now) {
+  const row = el('div', 'task' + (t.done ? ' done' : ''));
+  row.append(el('span', 'gutter', String(lineNo)));
+
+  const check = el('button', 'check', t.done ? '[x]' : '[ ]');
+  check.setAttribute('aria-label', t.done ? 'marcar pendiente' : 'marcar hecha');
+  check.onclick = () => {
+    if (t.repeat && !t.done) {
+      advanceRepeat(t);
+      toast(`↻ hecha por hoy — próxima: ${formatDue(t.due, t.dueHasTime)}`, true);
+    } else {
+      t.done = !t.done;
+    }
+    save(); render();
+  };
+  row.append(check);
+
+  const body = el('div', 'task-body');
+  body.append(el('div', 'task-text', t.text));
+
+  const tags = el('div', 'tags');
+  if (t.due) {
+    const overdue = !t.done && t.due < now;
+    tags.append(el('span', 'tag due' + (overdue ? ' overdue' : ''),
+      '⏱ ' + formatDue(t.due, t.dueHasTime)));
+  }
+  if (t.repeat) tags.append(el('span', 'tag repeat', t.repeat === 'daily' ? '↻ diario' : '↻ semanal'));
+  if (t.priority > 0) tags.append(el('span', 'tag p' + t.priority, '!p' + t.priority));
+  if (tags.children.length) body.append(tags);
+
+  if (t.reason) body.append(el('span', 'reason', '// ' + t.reason));
+
+  if (t.subtasks && t.subtasks.length) {
+    const subs = el('div', 'subtasks');
+    t.subtasks.forEach((s) => {
+      const srow = el('div', 'subtask' + (s.done ? ' done' : ''));
+      srow.append(el('span', 'branch', '└'));
+      const sc = el('button', 'check', s.done ? '[x]' : '[ ]');
+      sc.onclick = () => { s.done = !s.done; save(); render(); };
+      srow.append(sc);
+      srow.append(el('span', 'sub-text', s.text));
+      subs.append(srow);
+    });
+    body.append(subs);
+  }
+  row.append(body);
+
+  const actions = el('div', 'task-actions');
+  if (t.due && !t.done) {
+    const cal = el('button', 'cal-btn', '🗓');
+    cal.title = 'agregar al Calendario del iPhone (con aviso)';
+    cal.onclick = () => downloadIcs(t);
+    actions.append(cal);
+  }
+  const split = el('button', 'split-btn', '✦');
+  split.title = 'dividir en subtareas (Claude)';
+  split.onclick = () => breakdown(t, split);
+  actions.append(split);
+  const del = el('button', 'del-btn', '×');
+  del.title = 'eliminar';
+  del.onclick = () => { tasks = tasks.filter(x => x.id !== t.id); save(); render(); };
+  actions.append(del);
+  row.append(actions);
+
+  return row;
 }
 
 /* ── toast ── */
@@ -388,11 +547,30 @@ $('#addForm').addEventListener('submit', (e) => {
     priority: parsed.priority,
     due: parsed.due,
     dueHasTime: parsed.dueHasTime,
+    repeat: parsed.repeat,
     subtasks: [],
     createdAt: Date.now(),
   });
   input.value = '';
   save(); render();
+});
+
+/* paste a whole list (from the Claude app or anywhere) → bulk import */
+$('#taskInput').addEventListener('paste', (e) => {
+  const txt = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  const trimmed = txt.trim();
+  if (!trimmed) return;
+  let items = null;
+  if (trimmed.startsWith('[')) {
+    try { const j = JSON.parse(trimmed); if (Array.isArray(j)) items = j; } catch { }
+  }
+  if (!items && trimmed.includes('\n')) items = trimmed.split('\n');
+  if (items) {
+    e.preventDefault();
+    $('#taskInput').value = '';
+    const n = importTasks(items);
+    toast(n ? `✦ ${n} tarea${n === 1 ? '' : 's'} importada${n === 1 ? '' : 's'}` : 'Nada nuevo que importar', n > 0);
+  }
 });
 
 document.querySelectorAll('.filter').forEach(b => {
@@ -441,6 +619,8 @@ $('#clearTasksBtn').addEventListener('click', () => {
 
 /* ── init ── */
 render();
+importFromHash();
+window.addEventListener('hashchange', importFromHash);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

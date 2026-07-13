@@ -124,6 +124,19 @@ html, body {
   padding: 24px 14px;
   font-style: italic;
 }
+.day-head {
+  color: var(--blue);
+  font-size: 12.5px;
+  padding: 10px 14px 4px;
+  opacity: 0.85;
+}
+.section-head {
+  color: var(--comment);
+  font-size: 12px;
+  font-style: italic;
+  padding: 14px 14px 4px;
+  user-select: none;
+}
 .task {
   display: flex;
   align-items: flex-start;
@@ -166,6 +179,7 @@ html, body {
 .tag.p1 { color: var(--amber); border-color: #3a2f16; }
 .tag.p2 { color: var(--orange); border-color: #45280f; }
 .tag.p3 { color: var(--red); border-color: #4a1d1d; }
+.tag.repeat { color: var(--blue); border-color: #1c3a5e; }
 .reason {
   display: block;
   color: var(--comment);
@@ -189,8 +203,9 @@ html, body {
 .task-actions button {
   background: none; border: none; cursor: pointer;
   font-family: var(--mono); font-size: 14px;
-  color: #444c56; padding: 2px 6px;
+  color: #444c56; padding: 2px 4px;
 }
+.task-actions .cal-btn { font-size: 12px; opacity: 0.8; }
 .task-actions .split-btn { color: var(--magenta); opacity: 0.75; }
 .task-actions .split-btn:disabled { opacity: 0.35; cursor: wait; }
 .task-actions .del-btn:active { color: var(--red); }
