@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>todo.sh</title>
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="todo.sh">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+
+    <header class="titlebar">
+      <div class="dots" aria-hidden="true">
+        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+      </div>
+      <h1 class="title">~/todo.sh</h1>
+      <button id="settingsBtn" class="icon-btn" title="Configuración" aria-label="Configuración">⚙</button>
+    </header>
+
+    <form id="addForm" class="prompt-row" autocomplete="off">
+      <span class="prompt-glyph" aria-hidden="true">❯</span>
+      <input id="taskInput" type="text" enterkeyhint="done"
+             placeholder="agregar tarea… ej: comprar leche mañana 5pm !!" />
+      <button type="submit" class="add-btn" aria-label="Agregar">+</button>
+    </form>
+
+    <div class="toolbar">
+      <div class="filters" role="tablist">
+        <button class="filter active" data-filter="all">todas</button>
+        <button class="filter" data-filter="active">activas</button>
+        <button class="filter" data-filter="done">hechas</button>
+      </div>
+      <button id="prioritizeBtn" class="ai-btn" title="Priorizar con Claude">✦ priorizar</button>
+    </div>
+
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <footer class="statusline">
+      <span id="modeChip" class="mode">NORMAL</span>
+      <span id="counts" class="counts"></span>
+      <span id="modelChip" class="model"></span>
+    </footer>
+  </div>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="settings">
+      <h2>// configuración</h2>
+
+      <label for="apiKeyInput">Anthropic API key</label>
+      <input id="apiKeyInput" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <p class="hint">Tu clave se guarda <strong>solo en este dispositivo</strong> y se usa
+        únicamente para llamar a la API de Anthropic directamente. Es un producto de pago,
+        separado de tu suscripción de Claude. Consíguela en platform.claude.com.</p>
+
+      <label for="modelSelect">Modelo</label>
+      <select id="modelSelect">
+        <option value="claude-opus-4-8">claude-opus-4-8 (mejor calidad)</option>
+        <option value="claude-sonnet-5">claude-sonnet-5 (balance)</option>
+        <option value="claude-haiku-4-5">claude-haiku-4-5 (más barato)</option>
+      </select>
+
+      <div class="settings-actions">
+        <button value="save" id="saveSettingsBtn" class="primary">guardar</button>
+        <button value="cancel" class="ghost">cerrar</button>
+      </div>
+
+      <div class="danger-zone">
+        <button type="button" id="removeKeyBtn" class="danger">borrar clave</button>
+        <button type="button" id="clearTasksBtn" class="danger">borrar todas las tareas</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
