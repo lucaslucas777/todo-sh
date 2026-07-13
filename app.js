@@ -291,7 +291,7 @@ function render() {
   const nHoy = (groups['hoy'] || []).length;
   const nVenc = (groups['vencidas'] || []).length;
   const dayStr = new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
-  let head = `// ${dayStr}`;
+  let head = dayStr;
   if (nVenc) head += ` · ${nVenc} vencida${nVenc === 1 ? '' : 's'}`;
   head += ` · ${nHoy} para hoy`;
   listEl.append(el('div', 'day-head', head));
@@ -305,16 +305,14 @@ function render() {
 
   if (!sections.length) {
     listEl.append(el('div', 'empty',
-      tasks.length ? '// nada que mostrar con este filtro'
-                   : '// no hay tareas — agrega una arriba'));
+      tasks.length ? 'nada que mostrar con este filtro'
+                   : 'no hay tareas — agrega una arriba'));
   }
 
-  let lineNo = 0;
   for (const sec of sections) {
-    listEl.append(el('div', 'section-head', `// ${sec}`));
+    listEl.append(el('div', 'section-head', sec));
     for (const t of groups[sec]) {
-      lineNo++;
-      listEl.append(taskRow(t, lineNo, now));
+      listEl.append(taskRow(t, now));
     }
   }
 
@@ -325,11 +323,10 @@ function render() {
     : '';
 }
 
-function taskRow(t, lineNo, now) {
+function taskRow(t, now) {
   const row = el('div', 'task' + (t.done ? ' done' : ''));
-  row.append(el('span', 'gutter', String(lineNo)));
 
-  const check = el('button', 'check', t.done ? '[x]' : '[ ]');
+  const check = el('button', 'check', t.done ? '✓' : '');
   check.setAttribute('aria-label', t.done ? 'marcar pendiente' : 'marcar hecha');
   check.onclick = () => {
     if (t.repeat && !t.done) {
@@ -355,14 +352,13 @@ function taskRow(t, lineNo, now) {
   if (t.priority > 0) tags.append(el('span', 'tag p' + t.priority, '!p' + t.priority));
   if (tags.children.length) body.append(tags);
 
-  if (t.reason) body.append(el('span', 'reason', '// ' + t.reason));
+  if (t.reason) body.append(el('span', 'reason', t.reason));
 
   if (t.subtasks && t.subtasks.length) {
     const subs = el('div', 'subtasks');
     t.subtasks.forEach((s) => {
       const srow = el('div', 'subtask' + (s.done ? ' done' : ''));
-      srow.append(el('span', 'branch', '└'));
-      const sc = el('button', 'check', s.done ? '[x]' : '[ ]');
+      const sc = el('button', 'check', s.done ? '✓' : '');
       sc.onclick = () => { s.done = !s.done; save(); render(); };
       srow.append(sc);
       srow.append(el('span', 'sub-text', s.text));
